@@ -1,0 +1,179 @@
+import json
+from datetime import datetime
+from typing import Dict, List, Optional
+
+class TVShow:
+    def __init__(self, title: str, genres: List[str], rating: float,
+                 description: str, year: int, seasons: int,
+                 platform: str, actors: List[str]):
+        self.title = title
+        self.genres = genres
+        self.rating = rating
+        self.description = description
+        self.year = year
+        self.seasons = seasons
+        self.platform = platform  # Streaming platform
+        self.actors = actors
+
+class UserProfile:
+    def __init__(self, name: str):
+        self.name = name
+        self.genre_prefs: Dict[str, float] = {}  # Genre: preference score (0-1)
+        self.watched_shows: List[str] = []
+        self.min_rating: float = 7.0
+        self.preferred_platforms: List[str] = []
+
+class TVRecommender:
+    def __init__(self):
+        self.shows = self.load_show_database()
+        self.users: Dict[str, UserProfile] = {}
+
+    def load_show_database(self) -> List[TVShow]:
+        """Load sample show database (could be replaced with file loading)"""
+        return [
+            TVShow("Stranger Things", ["Sci-Fi", "Horror", "Drama"], 8.7,
+                  "Kids with special abilities fight supernatural forces",
+                  2016, 4, "Netflix", ["Millie Bobby Brown", "Finn Wolfhard"]),
+            TVShow("The Office", ["Comedy", "Mockumentary"], 8.9,
+                  "Daily lives of office employees",
+                  2005, 9, "Peacock", ["Steve Carell", "John Krasinski"]),
+            TVShow("Breaking Bad", ["Drama", "Crime", "Thriller"], 9.5,
+                  "Chemistry teacher turns to crime",
+                  2008, 5, "Netflix", ["Bryan Cranston", "Aaron Paul"]),
+            TVShow("The Witcher", ["Fantasy", "Action", "Drama"], 8.2,
+                  "Monster hunter in a magical world",
+                  2019, 3, "Netflix", ["Henry Cavill", "Anya Chalotra"]),
+            TVShow("Ted Lasso", ["Comedy", "Sports", "Drama"], 8.8,
+                  "American coach leads British soccer team",
+                  2020, 3, "Apple TV+", ["Jason Sudeikis", "Hannah Waddingham"])
+        ]
+
+    def create_user_profile(self, name: str) -> UserProfile:
+        """Create a new user profile"""
+        if name not in self.users:
+            self.users[name] = UserProfile(name)
+        return self.users[name]
+
+    def setup_user_preferences(self, user: UserProfile):
+        """Setup detailed user preferences"""
+        print(f"\nSetting up preferences for {user.name}")
+
+        # Genre preferences
+        print("Rate these genres (0-10), or press Enter to skip:")
+        genres = ["Sci-Fi", "Horror", "Drama", "Comedy", "Crime",
+                 "Thriller", "Action", "Fantasy", "Sports", "Romance"]
+        for genre in genres:
+            rating = input(f"{genre} (0-10): ").strip()
+            if rating:
+                user.genre_prefs[genre] = min(float(rating) / 10, 1.0)
+
+        # Platforms
+        print("\nAvailable platforms: Netflix, Peacock, Apple TV+, Amazon Prime")
+        platforms = input("Preferred platforms (comma-separated): ").split(",")
+        user.preferred_platforms = [p.strip() for p in platforms if p.strip()]
+
+        # Minimum rating
+        rating = input("Minimum rating (0-10, default 7): ").strip()
+        user.min_rating = float(rating) if rating else 7.0
+
+    def calculate_show_score(self, user: UserProfile, show: TVShow) -> float:
+        """Calculate a detailed compatibility score for a show"""
+        if show.title in user.watched_shows:
+            return 0.0
+
+        # Genre matching score (weighted by user preference)
+        genre_score = 0
+        for genre in show.genres:
+            if genre in user.genre_prefs:
+                genre_score += user.genre_prefs[genre]
+        genre_score = genre_score / max(len(show.genres), 1)
+
+        # Rating score
+        rating_score = (show.rating - user.min_rating) / (10 - user.min_rating)
+        rating_score = max(0, min(rating_score, 1.0))
+
+        # Platform bonus
+        platform_bonus = 0.2 if show.platform in user.preferred_platforms else 0
+
+        # Recency bonus (shows from last 10 years get small boost)
+        recency_bonus = 0.1 if (datetime.now().year - show.year) <= 10 else 0
+
+        # Combine scores (weights can be adjusted)
+        final_score = (genre_score * 0.5 +
+                      rating_score * 0.3 +
+                      platform_bonus +
+                      recency_bonus)
+        return min(final_score, 1.0)
+
+    def recommend_shows(self, user: UserProfile) -> List[tuple]:
+        """Generate personalized recommendations"""
+        scored_shows = []
+        for show in self.shows:
+            if show.rating >= user.min_rating:
+                score = self.calculate_show_score(user, show)
+                if score > 0:
+                    scored_shows.append((show, score))
+
+        # Sort by score and return top 5
+        scored_shows.sort(key=lambda x: x[1], reverse=True)
+        return scored_shows[:5]
+
+    def display_recommendations(self, recommendations: List[tuple]):
+        """Display formatted recommendations"""
+        if not recommendations:
+            print("No recommendations available!")
+            return
+
+        print("\nYour Personalized Recommendations:")
+        print("=" * 60)
+        for i, (show, score) in enumerate(recommendations, 1):
+            print(f"{i}. {show.title} (Match: {score:.2%})")
+            print(f"   Genres: {', '.join(show.genres)}")
+            print(f"   Rating: {show.rating}/10")
+            print(f"   Seasons: {show.seasons}")
+            print(f"   Platform: {show.platform}")
+            print(f"   Starring: {', '.join(show.actors[:3])}")
+            print(f"   Released: {show.year}")
+            print(f"   {show.description}")
+            print("-" * 60)
+
+def main():
+    recommender = TVRecommender()
+    print("Welcome to the Enhanced TV Show Recommender!")
+
+    # Get user
+    name = input("Enter your name: ").strip()
+    user = recommender.create_user_profile(name)
+
+    # Setup preferences
+    recommender.setup_user_preferences(user)
+
+    while True:
+        # Get and show recommendations
+        recommendations = recommender.recommend_shows(user)
+        recommender.display_recommendations(recommendations)
+
+        # Additional options
+        print("\nOptions:")
+        print("1. Mark a show as watched")
+        print("2. Update preferences")
+        print("3. Get new recommendations")
+        print("4. Exit")
+
+        choice = input("Choose an option (1-4): ")
+        if choice == "1":
+            show = input("Enter show title to mark as watched: ")
+            user.watched_shows.append(show)
+        elif choice == "2":
+            recommender.setup_user_preferences(user)
+        elif choice == "3":
+            continue
+        elif choice == "4":
+            print("Goodbye!")
+            break
+        else:
+            print("Invalid option, please try again")
+
+if __name__ == "__main__":
+    main()
+​​​​​​​​​​​​​​​​​​​​​​​​​​
