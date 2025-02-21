@@ -1,0 +1,224 @@
+​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​import time
+from typing import Dict, List, Union
+from enum import Enum
+import random
+
+class InstructionType(Enum):
+    """Enumeration for instruction types"""
+    ADD = "ADD"    # Addition
+    SUB = "SUB"    # Subtraction
+    LD = "LD"      # Load from memory
+    ST = "ST"      # Store to memory
+    JMP = "JMP"    # Jump to address
+    HLT = "HLT"    # Halt execution
+
+class Cache:
+    def __init__(self, size: int = 16):
+        """Initialize cache system"""
+        self.size = size
+        self.cache: Dict[int, any] = {}
+        self.hits = 0
+        self.misses = 0
+
+    def read(self, address: int) -> any:
+        """Read from cache"""
+        if address in self.cache:
+            self.hits += 1
+            return self.cache[address]
+        self.misses += 1
+        return None
+
+    def write(self, address: int, value: any):
+        """Write to cache (simple write-through policy)"""
+        if len(self.cache) >= self.size:
+            # Simple eviction: remove random entry
+            self.cache.pop(random.choice(list(self.cache.keys())))
+        self.cache[address] = value
+
+    def get_stats(self) -> Dict[str, float]:
+        """Return cache statistics"""
+        total = self.hits + self.misses
+        hit_rate = self.hits / total if total > 0 else 0
+        return {"hits": self.hits, "misses": self.misses, "hit_rate": hit_rate}
+
+class CPU:
+    def __init__(self, clock_speed_mhz: float = 2.0):
+        """Initialize CPU components"""
+        self.registers: Dict[str, int] = {
+            "R0": 0, "R1": 0, "R2": 0, "R3": 0,  # General-purpose registers
+            "PC": 0,                             # Program Counter
+            "IR": 0                              # Instruction Register (will store tuple)
+        }
+        self.clock_speed = clock_speed_mhz
+        self.cycle_time = 1 / self.clock_speed
+        self.running = False
+        self.cycles = 0
+
+    def fetch(self, memory: 'Memory') -> tuple:
+        """Fetch instruction from memory"""
+        instruction_addr = self.registers["PC"]
+        instruction = memory.read(instruction_addr)
+        if not isinstance(instruction, tuple):  # Type check
+            raise TypeError(f"Invalid instruction at address {instruction_addr}: {instruction}")
+        self.registers["PC"] += 1
+        self.registers["IR"] = instruction
+        self.cycles += 1
+        return instruction
+
+    def decode(self, instruction: tuple) -> tuple:
+        """Decode the instruction"""
+        if not isinstance(instruction, tuple) or len(instruction) < 1:
+            raise TypeError(f"Cannot decode invalid instruction: {instruction}")
+        opcode, *operands = instruction
+        return (opcode, operands)
+
+    def execute(self, opcode: str, operands: List, memory: 'Memory'):
+        """Execute the instruction"""
+        self.cycles += 1
+        try:
+            if opcode == InstructionType.ADD.value:
+                dest, src1, src2 = operands
+                self.registers[dest] = self.registers[src1] + self.registers[src2]
+            elif opcode == InstructionType.SUB.value:
+                dest, src1, src2 = operands
+                self.registers[dest] = self.registers[src1] - self.registers[src2]
+            elif opcode == InstructionType.LD.value:
+                reg, addr = operands
+                value = memory.read(addr)
+                if not isinstance(value, int):  # Expecting integer for LD
+                    raise TypeError(f"Invalid value for LD at address {addr}: {value}")
+                self.registers[reg] = value
+            elif opcode == InstructionType.ST.value:
+                reg, addr = operands
+                memory.write(addr, self.registers[reg])
+            elif opcode == InstructionType.JMP.value:
+                addr = operands[0]
+                self.registers["PC"] = addr
+            elif opcode == InstructionType.HLT.value:
+                self.running = False
+            else:
+                raise ValueError(f"Unknown opcode: {opcode}")
+        except ValueError as e:
+            raise TypeError(f"Execution error: {str(e)}")
+
+    def get_cycles(self) -> int:
+        """Return total cycles executed"""
+        return self.cycles
+
+class Memory:
+    def __init__(self, size: int = 1024):
+        """Initialize memory system"""
+        self.size = size
+        self.memory: List[Union[tuple, int]] = [None] * size  # Allow tuples or integers
+        self.cache = Cache()
+
+    def read(self, address: int) -> any:
+        """Read from memory with cache check"""
+        if not (0 <= address < self.size):
+            raise ValueError(f"Memory address {address} out of bounds")
+        cache_value = self.cache.read(address)
+        if cache_value is not None:
+            return cache_value
+        value = self.memory[address]
+        self.cache.write(address, value)
+        return value
+
+    def write(self, address: int, value: any):
+        """Write to memory and update cache"""
+        if not (0 <= address < self.size):
+            raise ValueError(f"Memory address {address} out of bounds")
+        self.memory[address] = value
+        self.cache.write(address, value)
+
+    def load_program(self, program: List[tuple], start_addr: int = 0):
+        """Load program into memory"""
+        for i, instruction in enumerate(program):
+            if not isinstance(instruction, tuple):
+                raise TypeError(f"Program instruction must be a tuple, got: {instruction}")
+            self.memory[start_addr + i] = instruction
+
+class ArchitectureSimulator:
+    def __init__(self):
+        """Initialize the simulator"""
+        self.cpu = CPU()
+        self.memory = Memory()
+        self.start_time = 0
+
+    def load_program(self, program: List[tuple]):
+        """Load program into memory"""
+        self.memory.load_program(program)
+
+    def run(self):
+        """Run the simulation"""
+        self.cpu.running = True
+        self.start_time = time.time()
+
+        while self.cpu.running:
+            time.sleep(self.cpu.cycle_time / 1000)  # Scaled for practical simulation
+            try:
+                instruction = self.cpu.fetch(self.memory)
+                opcode, operands = self.cpu.decode(instruction)
+                self.cpu.execute(opcode, operands, self.memory)
+            except (TypeError, ValueError) as e:
+                print(f"Simulation halted due to error: {str(e)}")
+                self.cpu.running = False
+
+    def get_performance_metrics(self) -> Dict[str, float]:
+        """Return performance metrics"""
+        execution_time = time.time() - self.start_time
+        cycles = self.cpu.get_cycles()
+        cache_stats = self.memory.cache.get_stats()
+
+        return {
+            "execution_time_s": execution_time,
+            "cycles": cycles,
+            "mips": (cycles / (execution_time * 1e6)),
+            "cache_hit_rate": cache_stats["hit_rate"],
+            "cache_hits": cache_stats["hits"],
+            "cache_misses": cache_stats["misses"]
+        }
+
+# Example usage
+def main():
+    sim = ArchitectureSimulator()
+
+    # Sample program:
+    # R1 = 5 + 3
+    # R2 = R1 - 2
+    # Store R2 to memory[10]
+    # Load from memory[10] to R3
+    # Jump to halt
+    program = [
+        (InstructionType.LD.value, "R1", 5),            # Load 5 from memory[5]
+        (InstructionType.LD.value, "R2", 6),            # Load 3 from memory[6]
+        (InstructionType.ADD.value, "R1", "R1", "R2"),  # R1 = 5 + 3
+        (InstructionType.SUB.value, "R2", "R1", "R0"),  # R2 = R1 - 2 (R0=0)
+        (InstructionType.ST.value, "R2", 10),           # Store R2 to memory[10]
+        (InstructionType.LD.value, "R3", 10),           # Load memory[10] to R3
+        (InstructionType.JMP.value, 7),                 # Jump to HLT
+        (InstructionType.HLT.value,)                    # Stop execution
+    ]
+
+    # Initialize memory with data
+    sim.memory.write(5, 5)  # Value 5 at address 5
+    sim.memory.write(6, 3)  # Value 3 at address 6
+
+    # Load and run
+    sim.load_program(program)
+    print("Starting simulation...")
+    sim.run()
+
+    # Display results
+    metrics = sim.get_performance_metrics()
+    print("\nSimulation Results:")
+    print(f"Execution Time: {metrics['execution_time_s']:.3f} seconds")
+    print(f"Total Cycles: {metrics['cycles']}")
+    print(f"MIPS: {metrics['mips']:.3f}")
+    print(f"Cache Hit Rate: {metrics['cache_hit_rate']:.2%}")
+    print(f"Cache Hits: {metrics['cache_hits']}, Misses: {metrics['cache_misses']}")
+    print("\nFinal Register Values:")
+    for reg, val in sim.cpu.registers.items():
+        print(f"{reg}: {val}")
+
+if __name__ == "__main__":
+    main()
