@@ -1,0 +1,197 @@
+import sqlite3
+from datetime import datetime
+
+class SportsDatabase:
+    def __init__(self, db_name="sports.db"):
+        """Initialize database connection and create tables"""
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self.create_tables()
+
+    def create_tables(self):
+        """Create tables for sports management system"""
+        # Teams table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS teams (
+                team_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sport TEXT NOT NULL,
+                founded_year INTEGER,
+                home_city TEXT
+            )
+        ''')
+
+        # Players table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS players (
+                player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                team_id INTEGER,
+                position TEXT,
+                jersey_number INTEGER,
+                join_date TEXT,
+                FOREIGN KEY (team_id) REFERENCES teams (team_id)
+            )
+        ''')
+
+        # Matches table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS matches (
+                match_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                home_team_id INTEGER,
+                away_team_id INTEGER,
+                match_date TEXT,
+                venue TEXT,
+                winner_id INTEGER,
+                FOREIGN KEY (home_team_id) REFERENCES teams (team_id),
+                FOREIGN KEY (away_team_id) REFERENCES teams (team_id),
+                FOREIGN KEY (winner_id) REFERENCES teams (team_id)
+            )
+        ''')
+
+        # Player Statistics table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS player_stats (
+                stat_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id INTEGER,
+                match_id INTEGER,
+                points_scored INTEGER DEFAULT 0,
+                assists INTEGER DEFAULT 0,
+                rebounds INTEGER DEFAULT 0,
+                FOREIGN KEY (player_id) REFERENCES players (player_id),
+                FOREIGN KEY (match_id) REFERENCES matches (match_id)
+            )
+        ''')
+        self.conn.commit()
+
+    def add_team(self, name, sport, founded_year, home_city):
+        """Add a new team"""
+        try:
+            self.cursor.execute('''
+                INSERT INTO teams (name, sport, founded_year, home_city)
+                VALUES (?, ?, ?, ?)
+            ''', (name, sport, founded_year, home_city))
+            self.conn.commit()
+            print(f"Team '{name}' added successfully!")
+        except sqlite3.IntegrityError:
+            print("Error: Team addition failed!")
+
+    def add_player(self, first_name, last_name, team_id, position, jersey_number):
+        """Add a new player to a team"""
+        try:
+            join_date = datetime.now().strftime("%Y-%m-%d")
+            self.cursor.execute('''
+                INSERT INTO players (first_name, last_name, team_id, position, jersey_number, join_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (first_name, last_name, team_id, position, jersey_number, join_date))
+            self.conn.commit()
+            print(f"Player '{first_name} {last_name}' added successfully!")
+        except sqlite3.IntegrityError:
+            print("Error: Player addition failed!")
+
+    def record_match(self, home_team_id, away_team_id, venue, match_date=None):
+        """Record a new match"""
+        if match_date is None:
+            match_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Verify teams exist
+        self.cursor.execute("SELECT * FROM teams WHERE team_id IN (?, ?)", (home_team_id, away_team_id))
+        if len(self.cursor.fetchall()) != 2:
+            print("Error: One or both teams not found!")
+            return
+
+        self.cursor.execute('''
+            INSERT INTO matches (home_team_id, away_team_id, match_date, venue)
+            VALUES (?, ?, ?, ?)
+        ''', (home_team_id, away_team_id, match_date, venue))
+        self.conn.commit()
+        print("Match recorded successfully!")
+
+    def record_stats(self, player_id, match_id, points, assists, rebounds):
+        """Record player statistics for a match"""
+        # Verify player and match exist
+        self.cursor.execute("SELECT * FROM players WHERE player_id = ?", (player_id,))
+        if not self.cursor.fetchone():
+            print("Error: Player not found!")
+            return
+
+        self.cursor.execute("SELECT * FROM matches WHERE match_id = ?", (match_id,))
+        if not self.cursor.fetchone():
+            print("Error: Match not found!")
+            return
+
+        self.cursor.execute('''
+            INSERT INTO player_stats (player_id, match_id, points_scored, assists, rebounds)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (player_id, match_id, points, assists, rebounds))
+        self.conn.commit()
+        print("Statistics recorded successfully!")
+
+    def set_match_winner(self, match_id, winner_id):
+        """Set the winner of a match"""
+        self.cursor.execute("UPDATE matches SET winner_id = ? WHERE match_id = ?", (winner_id, match_id))
+        self.conn.commit()
+        print("Match winner updated successfully!")
+
+    def get_team_stats(self, team_id):
+        """Get statistics for a team"""
+        self.cursor.execute('''
+            SELECT p.first_name, p.last_name, AVG(ps.points_scored), AVG(ps.assists), AVG(ps.rebounds)
+            FROM players p
+            LEFT JOIN player_stats ps ON p.player_id = ps.player_id
+            WHERE p.team_id = ?
+            GROUP BY p.player_id, p.first_name, p.last_name
+        ''', (team_id,))
+        return self.cursor.fetchall()
+
+    def search_players(self, search_term):
+        """Search players by name"""
+        self.cursor.execute('''
+            SELECT p.*, t.name as team_name
+            FROM players p
+            LEFT JOIN teams t ON p.team_id = t.team_id
+            WHERE p.first_name LIKE ? OR p.last_name LIKE ?
+        ''', (f'%{search_term}%', f'%{search_term}%'))
+        return self.cursor.fetchall()
+
+    def __del__(self):
+        """Close database connection"""
+        self.conn.close()
+
+# Example usage
+def main():
+    sports_db = SportsDatabase()
+
+    # Add sample data
+    sports_db.add_team("Lakers", "Basketball", 1947, "Los Angeles")
+    sports_db.add_team("Warriors", "Basketball", 1946, "Golden State")
+
+    sports_db.add_player("LeBron", "James", 1, "Forward", 23)
+    sports_db.add_player("Stephen", "Curry", 2, "Guard", 30)
+
+    sports_db.record_match(1, 2, "Staples Center")
+
+    # Record sample stats
+    sports_db.record_stats(1, 1, 25, 8, 7)  # LeBron's stats
+    sports_db.record_stats(2, 1, 30, 5, 3)  # Curry's stats
+
+    # Set match winner
+    sports_db.set_match_winner(1, 1)
+
+    # Display team stats
+    print("\nLakers Team Statistics:")
+    stats = sports_db.get_team_stats(1)
+    for stat in stats:
+        print(f"Player: {stat[0]} {stat[1]}, Avg Points: {stat[2]:.1f}, "
+              f"Avg Assists: {stat[3]:.1f}, Avg Rebounds: {stat[4]:.1f}")
+
+    # Search for players
+    print("\nPlayer Search Results:")
+    players = sports_db.search_players("LeBron")
+    for player in players:
+        print(f"ID: {player[0]}, Name: {player[1]} {player[2]}, Team: {player[7]}, Position: {player[4]}")
+
+if __name__ == "__main__":
+    main()
+​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
